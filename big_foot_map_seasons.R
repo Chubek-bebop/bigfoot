@@ -6,44 +6,63 @@ library(dplyr)
 library(leaflet.extras)
 library(htmltools)
 library(htmlwidgets)
+library(sf)
+library(sp)
 
 
-
-#Plot the data using leaflet by piping in the data.frame
-map <- df%>%
-leaflet() %>%
-  #Set provider tiles (i.e. the way the map looks)
-  addProviderTiles("USGS.USImagery") %>% 
-  #Manual set the view to the center of the US (roughly)
-  setView(lat = 35, lng = -95, zoom = 4) %>%
-  #Add a search option if a specific location is needed to be found.
-  addSearchOSM()%>%
-  addResetMapButton
-
-#Read the data in as a data.frame (df)
-df <- read.csv('bfro_reports_geocoded.csv')
-
-#Define color palette for the map to use based on seasons.
-pal_seasons <- colorFactor(
-  palette = c('brown', 'blue', 'green', 'red','black'),levels = c("Fall", "Winter", "Spring","Summer","Unknown"))
-
-#Split the data based on the season. 
-seasons = levels(factor(df$season))
-#Plot each of the observations by season.
-for (s in seasons) {
-  map <- map %>%
-    #Add circle markers with popups per season.
-    addCircleMarkers(data = filter(df,season == s),~longitude,~latitude,popup = ~title,color = ~pal_seasons(season), group = s)
+date2season <- function(date) {
+  season_start <- c("0101", "0321", "0621", "0923", "1221")
+  season_name <- c("Winter", "Spring", "Summer", "Fall", "Winter")
+  mmdd <- format(date, "%m%d")
+  season_name[findInterval(mmdd, season_start)]
 }
 
-map <- map %>% addProviderTiles("CartoDB", group = "Carto") %>% addProviderTiles("Esri", group = "Esri")
+df <- read.csv('bfro_reports_geocoded.csv')
+df <- df %>%
+  mutate(year = as.numeric(format(as.Date(date, format = "%Y-%m-%d"), "%Y"))) %>%
+  mutate (season_actual = date2season(as.Date(date, format = "%Y-%m-%d"))) %>%
+  arrange(desc(year), desc(classification))
 
-# By adding the layerControl after the initial map setup, we get the generation of the overlayGroups to match the actual groups created above.
-map <- map %>% addLayersControl(baseGroups = c("USGS.USImagery", "Carto", "Esri"),overlayGroups = seasons, options = layersControlOptions(collapsed = FALSE)) 
-map  
+
+shp <-
+  read_sf('shapefiles/states/cb_2022_us_state_500k.shp') %>%   sf::st_transform('+proj=longlat +datum=WGS84')
+
+map <- df %>%
+  leaflet() %>%
+  addProviderTiles("USGS.USImagery") %>%
+  setView(lat = 35, lng = -95, zoom = 4) %>%
+  addSearchOSM() %>%
+  addResetMapButton
 
 
-#'Print' the map
+pal_seasons <- colorFactor(
+  palette = c('brown', 'blue', 'green', 'red', 'black'),
+  levels = c("Fall", "Winter", "Spring", "Summer", "Unknown")
+)
+
+seasons = levels(factor(df$season_actual))
+for (s in seasons) {
+  map <- map %>%
+    addHeatmap(
+      data = filter(df, season == s) %>% na.omit(),
+      ~ longitude,
+      ~ latitude,
+      group = s,
+      gradient ="RdYlGn"
+    )
+}
+
+map <-
+  map %>% addProviderTiles("CartoDB", group = "Carto") %>% addProviderTiles("Esri", group = "Esri")
+
+map <-
+  map %>% addLayersControl(
+    baseGroups = c("USGS.USImagery", "Carto", "Esri"),
+    overlayGroups = seasons,
+    options = layersControlOptions(collapsed = FALSE)
+  )
 map
-#Save map as a HTML file.
-saveWidget(map, file="bigfoot_map_seasons.html")
+
+
+map
+saveWidget(map, file = "bigfoot_map_seasons.html")
