@@ -1,28 +1,29 @@
-#big_foot_map.R by Bart Czubak
-
-#Load in an libraries.
-library(leaflet)
-library(leaflet.extras)
-library(htmltools)
-library(htmlwidgets)
-library(mapview)
-
-
-
 df <- read.csv('bfro_reports_geocoded.csv')
-df <- 
 
+df_sentiment_plot <- df %>%
+  mutate(year = as.numeric(format(as.Date(date, format = "%Y-%m-%d"), "%Y"))) %>%
+  unnest_tokens(word, observed) %>%
+  na.omit() %>%
+  select(year, word) %>%
+  group_by(year) %>%
+  inner_join(get_sentiments('nrc'), by = "word", relationship = "many-to-many") %>%
+  count(sentiment) %>%
+  group_by(year) %>%
+  mutate(total_per_year = sum(n)) %>%
+  ungroup() %>%
+  mutate(fraction = n / total_per_year)
 
-map <- df%>%
-leaflet() %>%
-  addProviderTiles("USGS.USImagery") %>% 
-  setView(lat = 35, lng = -95, zoom = 4) %>%
-  addHeatmap(
-    lng= na.omit(df$longitude),lat = na.omit(df$latitude), max = .6,radius = 20, intensity = .05, gradient = "Spectral")
-
-
-map <- map %>%
-  addProviderTiles("CartoDB", group = "Carto") %>% addProviderTiles("Esri", group = "Esri") %>%
-  addLayersControl(baseGroups = c("USGS.USImagery", "Carto", "Esri"))
-
-saveWidget(map, file="bigfoot_map_sightings_heatmap.html")
+ggplotly(ggplot(df_sentiment_plot, aes(x = year,
+                        y = fraction)) + geom_line(aes(
+                          text = paste(
+                            "Sentiment: ",
+                            sentiment,
+                            "\nFreaction: ",
+                            fraction,
+                            "\nYear: ",
+                            year
+                          ),
+                          color = sentiment,
+                          group = 0#### THIS LINE FIXES THE INVISIBLE
+                        )) + xlim(2010, 2020),
+         tooltip =  c("text"))
